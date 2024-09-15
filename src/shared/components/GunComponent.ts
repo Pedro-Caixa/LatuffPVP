@@ -1,5 +1,6 @@
 import { BaseComponent, Component } from "@flamework/components";
 import { OnStart } from "@flamework/core";
+import FastCast, { FastCastBehavior } from "@rbxts/fastcast";
 import { ReplicatedStorage, RunService, UserInputService } from "@rbxts/services";
 import WeaponConfig from "shared/Weapon.Config.json";
 
@@ -45,10 +46,10 @@ const Guns: GunsConfig = WeaponConfig.Guns;
 })
 export class Gun extends BaseComponent<Attributes> implements OnStart {
 	private reloading = false;
-	private autoFireConnection: RBXScriptConnection | undefined;
 	private runServiceConnection: RBXScriptConnection | undefined;
 	private isMouseDown: boolean = false;
 	private canFire: boolean = true;
+	private casterBehavior: FastCastBehavior = FastCast.newBehavior();
 
 	onStart(): void {
 		if (this.isTool()) {
@@ -70,6 +71,13 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 			} else {
 				warn(`No configuration found for Gun_ID: ${gunId}`);
 			}
+
+			this.casterBehavior = FastCast.newBehavior();
+			this.casterBehavior.RaycastParams = new RaycastParams();
+			this.casterBehavior.RaycastParams.FilterType = Enum.RaycastFilterType.Exclude;
+			this.casterBehavior.RaycastParams.FilterDescendantsInstances = [
+				game.GetService("Players").LocalPlayer.Character!,
+			];
 
 			this.configureInputService();
 
@@ -162,13 +170,6 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		this.attributes.ammo = this.attributes.max_ammo;
 		print(`Gun reloaded. Ammo is now ${this.attributes.ammo}`);
 		this.reloading = false;
-	}
-
-	private stopAutoFire(): void {
-		this.reloading = true;
-		task.defer(() => {
-			this.reloading = false;
-		});
 	}
 
 	private isTool(): boolean {
