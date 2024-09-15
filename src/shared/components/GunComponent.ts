@@ -48,6 +48,7 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 	private autoFireConnection: RBXScriptConnection | undefined;
 	private runServiceConnection: RBXScriptConnection | undefined;
 	private isMouseDown: boolean = false;
+	private canFire: boolean = true;
 
 	onStart(): void {
 		if (this.isTool()) {
@@ -70,17 +71,15 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 				warn(`No configuration found for Gun_ID: ${gunId}`);
 			}
 
-			// Gun start
-
 			this.configureInputService();
 
-			if (this.isMouseDown && tool.Equipped) {
-				if (this.attributes.weapon_type === "Auto") {
-					this.startAutoFire();
-				} else if (this.attributes.weapon_type === "Semi") {
-					this.shoot();
-				}
-			}
+			tool.Equipped.Connect(() => {
+				this.startMonitoringInput();
+			});
+
+			tool.Unequipped.Connect(() => {
+				this.stopMonitoringInput();
+			});
 		} else {
 			warn("Gun component is not attached to a Tool instance.");
 		}
@@ -90,6 +89,10 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		UserInputService.InputBegan.Connect((input, gameProcessed) => {
 			if (input.UserInputType === Enum.UserInputType.MouseButton1) {
 				this.isMouseDown = true;
+			} else if (input.UserInputType === Enum.UserInputType.Keyboard) {
+				if (input.KeyCode === Enum.KeyCode.R) {
+					this.reload();
+				}
 			}
 		});
 
@@ -102,15 +105,28 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 
 	private startMonitoringInput(): void {
 		this.runServiceConnection = RunService.Heartbeat.Connect(() => {
-			if (this.isMouseDown) {
+			if (this.isMouseDown && this.canFire) {
 				if (this.attributes.weapon_type === "Auto") {
 					this.startAutoFire();
 				} else if (this.attributes.weapon_type === "Semi") {
+					this.canFire = false;
 					this.shoot();
-					task.wait(this.attributes.shoot_delay);
+					task.spawn(() => {
+						task.wait(this.attributes.shoot_delay);
+						this.canFire = true;
+					});
 				}
 			}
 		});
+	}
+
+	private async startAutoFire(): Promise<void> {
+		while (this.isMouseDown && this.attributes.ammo > 0 && !this.reloading) {
+			this.canFire = false;
+			this.shoot();
+			await task.wait(this.attributes.shoot_delay);
+		}
+		this.canFire = true;
 	}
 
 	private stopMonitoringInput(): void {
@@ -146,13 +162,6 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		this.attributes.ammo = this.attributes.max_ammo;
 		print(`Gun reloaded. Ammo is now ${this.attributes.ammo}`);
 		this.reloading = false;
-	}
-
-	private async startAutoFire(): Promise<void> {
-		while (this.attributes.ammo > 0 && !this.reloading) {
-			this.shoot();
-			await task.wait(this.attributes.shoot_delay);
-		}
 	}
 
 	private stopAutoFire(): void {

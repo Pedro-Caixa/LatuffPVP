@@ -7,7 +7,7 @@
             "headshot_damage": 50,
             "range": 50,
 
-            "shoot_delay": 0.2,
+            "shoot_delay": 0.1,
             "reload_time": 1.5
         }
     }
