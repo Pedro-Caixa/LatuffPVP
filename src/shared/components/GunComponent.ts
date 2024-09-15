@@ -81,6 +81,8 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 
 			this.caster = new FastCast();
 
+			FastCast.VisualizeCasts = true;
+
 			this.casterBehavior = FastCast.newBehavior();
 			this.casterBehavior.RaycastParams = new RaycastParams();
 			this.casterBehavior.RaycastParams.FilterType = Enum.RaycastFilterType.Exclude;
