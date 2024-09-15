@@ -29,6 +29,9 @@
     "@flamework/core": "^1.2.2",
     "@flamework/networking": "^1.2.2",
     "@rbxts/fastcast": "^13.2.0-ts.2",
+    "@rbxts/nextcast": "^0.1.1-debug",
+    "@rbxts/object-cache": "^1.4.1",
+    "@rbxts/partcache": "^1.1.1",
     "@rbxts/services": "^1.5.5",
     "@rbxutil/signal": "^2.0.1",
     "io-serve": "^1.1.2"

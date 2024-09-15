@@ -8,7 +8,8 @@
             "range": 50,
 
             "shoot_delay": 0.1,
-            "reload_time": 1.5
+            "reload_time": 1.5,
+            "bullet_speed": 1000
         }
     }
 }

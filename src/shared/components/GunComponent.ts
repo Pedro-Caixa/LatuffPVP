@@ -1,11 +1,14 @@
 import { BaseComponent, Component } from "@flamework/components";
 import { OnStart } from "@flamework/core";
-import FastCast, { Caster, FastCastBehavior } from "@rbxts/fastcast";
+import { Caster, PartCache, HighFidelityBehavior, ActiveCast } from "@rbxts/nextcast";
 import { ReplicatedStorage, RunService, UserInputService, Workspace } from "@rbxts/services";
 import WeaponConfig from "shared/Weapon.Config.json";
 
-interface GunInstance extends Instance {
-	handle: BasePart;
+interface UserData {
+	UserID: number;
+	TargetID: number | unknown;
+	User_Team: Team;
+	UUID: number;
 }
 
 interface GunAttributes {
@@ -16,6 +19,7 @@ interface GunAttributes {
 	reload_time: number;
 	weapon_type: string;
 	shoot_delay: number;
+	bullet_speed: number;
 }
 
 interface GunsConfig {
@@ -31,9 +35,15 @@ interface Attributes {
 	reload_time: number;
 	weapon_type: string;
 	shoot_delay: number;
+	bullet_speed: number;
 }
 
 const Guns: GunsConfig = WeaponConfig.Guns;
+const WeaponSystemEffectsFolder = ReplicatedStorage.WaitForChild("Effects").WaitForChild("WeaponSystem") as Folder;
+const GunsFolder = WeaponSystemEffectsFolder.WaitForChild("Guns") as Folder;
+const BulletTemplate = GunsFolder.WaitForChild("BalaNormal") as BasePart;
+const BulletCacheFolder = Workspace.WaitForChild("BulletCache") as Folder;
+const BULLET_GRAVITY = new Vector3(0, -Workspace.Gravity, 0);
 
 @Component({
 	defaults: {
@@ -45,6 +55,7 @@ const Guns: GunsConfig = WeaponConfig.Guns;
 		reload_time: 2,
 		weapon_type: "Semi",
 		shoot_delay: 0.1,
+		bullet_speed: 1000,
 	},
 	tag: "GunFramework",
 })
@@ -53,8 +64,11 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 	private runServiceConnection: RBXScriptConnection | undefined;
 	private isMouseDown: boolean = false;
 	private canFire: boolean = true;
-	private caster: Caster = new FastCast();
-	private casterBehavior: FastCastBehavior = FastCast.newBehavior();
+
+	private BulletCache: PartCache | undefined;
+	private NextCastCaster = new Caster<UserData>();
+	private raycastParams: RaycastParams = new RaycastParams();
+	private CastBehavior = Caster.newBehavior();
 
 	onStart(): void {
 		if (this.isTool()) {
@@ -72,23 +86,33 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 				this.attributes.reload_time = gunConfig.reload_time;
 				this.attributes.weapon_type = gunConfig.weapon_type;
 				this.attributes.shoot_delay = gunConfig.shoot_delay;
+				this.attributes.bullet_speed = gunConfig.bullet_speed;
+				//this.attributes.Sounds = gunConfig.Sounds;
 				print(`Gun configuration loaded for ${gunId}`);
 			} else {
 				warn(`No configuration found for Gun_ID: ${gunId}`);
 			}
 
-			print(this.instance.FindFirstChild("Handle"));
+			this.NextCastCaster = new Caster<UserData>();
 
-			this.caster = new FastCast();
+			const CastParams = new RaycastParams();
+			CastParams.IgnoreWater = true;
+			CastParams.FilterType = Enum.RaycastFilterType.Exclude;
+			CastParams.FilterDescendantsInstances = [];
 
-			FastCast.VisualizeCasts = true;
+			this.CastBehavior = Caster.newBehavior();
+			this.CastBehavior.RaycastParams = CastParams;
+			this.CastBehavior.MaxDistance = this.attributes.range;
+			this.CastBehavior.HighFidelityBehavior = HighFidelityBehavior.Default;
 
-			this.casterBehavior = FastCast.newBehavior();
-			this.casterBehavior.RaycastParams = new RaycastParams();
-			this.casterBehavior.RaycastParams.FilterType = Enum.RaycastFilterType.Exclude;
-			this.casterBehavior.RaycastParams.FilterDescendantsInstances = [
-				game.GetService("Players").LocalPlayer.Character!,
-			];
+			this.BulletCache = new PartCache(BulletTemplate.Clone(), 100, BulletCacheFolder);
+
+			this.CastBehavior.CosmeticBulletProvider = this.BulletCache;
+
+			this.CastBehavior.CosmeticBulletContainer = game.GetService("Workspace");
+			this.CastBehavior.Acceleration = Vector3.zero;
+			this.CastBehavior.AutoIgnoreContainer = false;
+			this.CastBehavior.SphereSize = 0;
 
 			this.configureInputService();
 
@@ -98,6 +122,12 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 
 			tool.Unequipped.Connect(() => {
 				this.stopMonitoringInput();
+			});
+			this.NextCastCaster.RayHit.Connect((cast, result) => {
+				const cosmeticBullet = cast.RayInfo.CosmeticBulletObject as BasePart;
+				if (cosmeticBullet) {
+					this.BulletCache?.ReturnPart(cosmeticBullet);
+				}
 			});
 		} else {
 			warn("Gun component is not attached to a Tool instance.");
@@ -125,8 +155,7 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 	private getFireDirection(): Vector3 {
 		const camera = Workspace.CurrentCamera;
 		if (!camera) {
-			warn("CurrentCamera is not available");
-			return new Vector3();
+			throw warn("CurrentCamera is not available");
 		}
 
 		const mouseLocation = UserInputService.GetMouseLocation();
@@ -137,12 +166,11 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 	private startMonitoringInput(): void {
 		this.runServiceConnection = RunService.Heartbeat.Connect(() => {
 			if (this.isMouseDown && this.canFire) {
-				const direction = this.getFireDirection();
 				if (this.attributes.weapon_type === "Auto") {
-					this.startAutoFire(direction);
+					this.startAutoFire();
 				} else if (this.attributes.weapon_type === "Semi") {
 					this.canFire = false;
-					this.shoot(direction);
+					this.shoot();
 					task.spawn(() => {
 						task.wait(this.attributes.shoot_delay);
 						this.canFire = true;
@@ -152,10 +180,10 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		});
 	}
 
-	private async startAutoFire(direction: Vector3): Promise<void> {
+	private async startAutoFire(): Promise<void> {
 		while (this.isMouseDown && this.attributes.ammo > 0 && !this.reloading) {
 			this.canFire = false;
-			this.shoot(direction);
+			this.shoot();
 			await task.wait(this.attributes.shoot_delay);
 		}
 		this.canFire = true;
@@ -168,7 +196,7 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		}
 	}
 
-	shoot(direction: Vector3): void {
+	shoot(): void {
 		if (this.reloading) {
 			print("Cannot shoot while reloading.");
 			return;
@@ -177,18 +205,45 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		if (this.attributes.ammo > 0) {
 			this.attributes.ammo--;
 			print(`Shot fired! Damage: ${this.attributes.damage}, Ammo left: ${this.attributes.ammo}`);
+			const direction = this.getFireDirection();
 			this.fire(direction);
 		} else {
 			this.reload();
 		}
 	}
 
+	private getHandlePosition(): Vector3 | undefined {
+		const tool = this.instance as Tool;
+		const handle = tool.FindFirstChild("Handle") as BasePart;
+		const firePosition = handle.FindFirstChild("ShootingAttachment") as Attachment;
+		return firePosition ? firePosition.WorldPosition : undefined;
+	}
+
 	private fire(direction: Vector3): void {
-		const origin = this.instance.FindFirstChild("Handle") as BasePart | undefined;
+		const origin = this.getHandlePosition();
 		if (origin) {
-			this.caster.Fire(origin.Position, direction, 100, this.casterBehavior);
+			const simBullet = this.NextCastCaster.Fire(
+				origin,
+				direction,
+				this.attributes.bullet_speed,
+				this.CastBehavior,
+			);
+			simBullet.Caster.LengthChanged.Connect(
+				(
+					cast: ActiveCast<UserData>,
+					lastPoint: Vector3,
+					rayDirection: Vector3,
+					segmentLength: number,
+					segmentVelocity: Vector3,
+					cosmeticBulletObject?: BasePart,
+				) => {
+					if (cosmeticBulletObject) {
+						cosmeticBulletObject.CFrame = new CFrame(lastPoint, lastPoint.add(rayDirection));
+					}
+				},
+			);
 		} else {
-			warn("Handle not found on the tool.");
+			warn("Handle position is not available.");
 		}
 	}
 

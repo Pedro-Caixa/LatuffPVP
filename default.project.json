@@ -1,5 +1,5 @@
 {
-	"name": "flamework-game",
+	"name": "latuff-pvp",
 	"globIgnorePaths": [
 		"**/package.json",
 		"**/tsconfig.json"
