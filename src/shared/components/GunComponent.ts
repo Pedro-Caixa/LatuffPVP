@@ -1,7 +1,8 @@
 import { BaseComponent, Component } from "@flamework/components";
 import { OnStart } from "@flamework/core";
 import { Caster, PartCache, HighFidelityBehavior, ActiveCast } from "@rbxts/nextcast";
-import { ReplicatedStorage, RunService, UserInputService, Workspace } from "@rbxts/services";
+import { Players, ReplicatedStorage, RunService, UserInputService, Workspace } from "@rbxts/services";
+import { Events } from "shared/network";
 import WeaponConfig from "shared/Weapon.Config.json";
 
 interface UserData {
@@ -129,6 +130,13 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 					this.BulletCache?.ReturnPart(cosmeticBullet);
 				}
 			});
+
+			this.NextCastCaster.CastTerminating.Connect(() => {
+				const cosmeticBullet = this.CastBehavior.CosmeticBulletProvider?.GetPart();
+				if (cosmeticBullet) {
+					this.BulletCache?.ReturnPart(cosmeticBullet);
+				}
+			});
 		} else {
 			warn("Gun component is not attached to a Tool instance.");
 		}
@@ -228,6 +236,8 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 				this.attributes.bullet_speed,
 				this.CastBehavior,
 			);
+			Events.fireBullet.fire(origin, direction, this.attributes.bullet_speed, this.attributes.range);
+
 			simBullet.Caster.LengthChanged.Connect(
 				(
 					cast: ActiveCast<UserData>,

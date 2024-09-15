@@ -1,4 +1,5 @@
-import { GlobalEvents, GlobalFunctions } from "shared/network";
+import { Caster, PartCache, HighFidelityBehavior, ActiveCast } from "@rbxts/nextcast";
+import { ReplicatedStorage, Workspace, Players } from "@rbxts/services";
+import { GlobalEvents } from "shared/network";
 
 export const Events = GlobalEvents.createServer({});
-export const Functions = GlobalFunctions.createServer({});
