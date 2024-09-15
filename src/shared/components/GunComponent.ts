@@ -1,8 +1,12 @@
 import { BaseComponent, Component } from "@flamework/components";
 import { OnStart } from "@flamework/core";
-import FastCast, { FastCastBehavior } from "@rbxts/fastcast";
-import { ReplicatedStorage, RunService, UserInputService } from "@rbxts/services";
+import FastCast, { Caster, FastCastBehavior } from "@rbxts/fastcast";
+import { ReplicatedStorage, RunService, UserInputService, Workspace } from "@rbxts/services";
 import WeaponConfig from "shared/Weapon.Config.json";
+
+interface GunInstance extends Instance {
+	handle: BasePart;
+}
 
 interface GunAttributes {
 	max_ammo: number;
@@ -49,6 +53,7 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 	private runServiceConnection: RBXScriptConnection | undefined;
 	private isMouseDown: boolean = false;
 	private canFire: boolean = true;
+	private caster: Caster = new FastCast();
 	private casterBehavior: FastCastBehavior = FastCast.newBehavior();
 
 	onStart(): void {
@@ -71,6 +76,10 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 			} else {
 				warn(`No configuration found for Gun_ID: ${gunId}`);
 			}
+
+			print(this.instance.FindFirstChild("Handle"));
+
+			this.caster = new FastCast();
 
 			this.casterBehavior = FastCast.newBehavior();
 			this.casterBehavior.RaycastParams = new RaycastParams();
@@ -111,14 +120,27 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		});
 	}
 
+	private getFireDirection(): Vector3 {
+		const camera = Workspace.CurrentCamera;
+		if (!camera) {
+			warn("CurrentCamera is not available");
+			return new Vector3();
+		}
+
+		const mouseLocation = UserInputService.GetMouseLocation();
+		const mouseRay = camera.ViewportPointToRay(mouseLocation.X, mouseLocation.Y);
+		return mouseRay.Direction.Unit.mul(this.attributes.range);
+	}
+
 	private startMonitoringInput(): void {
 		this.runServiceConnection = RunService.Heartbeat.Connect(() => {
 			if (this.isMouseDown && this.canFire) {
+				const direction = this.getFireDirection();
 				if (this.attributes.weapon_type === "Auto") {
-					this.startAutoFire();
+					this.startAutoFire(direction);
 				} else if (this.attributes.weapon_type === "Semi") {
 					this.canFire = false;
-					this.shoot();
+					this.shoot(direction);
 					task.spawn(() => {
 						task.wait(this.attributes.shoot_delay);
 						this.canFire = true;
@@ -128,10 +150,10 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		});
 	}
 
-	private async startAutoFire(): Promise<void> {
+	private async startAutoFire(direction: Vector3): Promise<void> {
 		while (this.isMouseDown && this.attributes.ammo > 0 && !this.reloading) {
 			this.canFire = false;
-			this.shoot();
+			this.shoot(direction);
 			await task.wait(this.attributes.shoot_delay);
 		}
 		this.canFire = true;
@@ -144,7 +166,7 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		}
 	}
 
-	shoot(): void {
+	shoot(direction: Vector3): void {
 		if (this.reloading) {
 			print("Cannot shoot while reloading.");
 			return;
@@ -153,8 +175,18 @@ export class Gun extends BaseComponent<Attributes> implements OnStart {
 		if (this.attributes.ammo > 0) {
 			this.attributes.ammo--;
 			print(`Shot fired! Damage: ${this.attributes.damage}, Ammo left: ${this.attributes.ammo}`);
+			this.fire(direction);
 		} else {
 			this.reload();
+		}
+	}
+
+	private fire(direction: Vector3): void {
+		const origin = this.instance.FindFirstChild("Handle") as BasePart | undefined;
+		if (origin) {
+			this.caster.Fire(origin.Position, direction, 100, this.casterBehavior);
+		} else {
+			warn("Handle not found on the tool.");
 		}
 	}
 
