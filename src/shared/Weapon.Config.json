@@ -1,0 +1,14 @@
+{
+    "Guns": {
+        "Pistola_0001": {
+            "weapon_type": "Auto",
+            "max_ammo": 15,
+            "damage": 25,
+            "headshot_damage": 50,
+            "range": 50,
+
+            "shoot_delay": 0.2,
+            "reload_time": 1.5
+        }
+    }
+}
